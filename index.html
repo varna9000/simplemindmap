@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Mind Map</title>
+    <meta name="description" content="A simple vanilla JavaScript mind mapping tool. Create nodes, link them visually, save, and load your maps. No login or registration.">
+    <meta name="author" content="Milen Hristov">
+    <meta property="og:title" content="Quick Mind Map" />
+    <meta property="og:type" content="website" />
+    <meta property="og:description" content="A simple vanilla JavaScript mind mapping tool. Create nodes, link them visually, save, and load your maps. No login or registration." />
+    <meta property="og:url" content="https://mhlegal.eu/mindmap/" />
+    <meta property="og:logo" content="https://mhlegal.eu/mindmap/quickmindmapper.png" />
+    <meta property="og:image" content="https://mhlegal.eu/mindmap/quickmindmapper.png" />
+    <meta property="og:image:alt" content="Simple Mind Map Icon" />
+
+
+    <style>
+        /* Basic layout and styles */
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        /* *** MODIFIED #controls STYLE *** */
+        #controls {
+            padding: 10px;
+            background-color: #E8F0FE; /* Soft Pastel Blue/Lavender */
+            /* border-bottom: 1px solid #ccc; */ /* Removed border */
+            display: flex;
+            gap: 12px; /* Slightly increased gap */
+            align-items: center;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Subtle shadow */
+        }
+        #mindmap-container {
+            flex-grow: 1;
+            position: relative;
+            background-color: #fafafa;
+        }
+        #mindmap-svg {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            user-select: none;
+            cursor: default;
+        }
+
+        /* Node Styles */
+        .node-group {
+             cursor: grab;
+        }
+         .node-group:active {
+             cursor: grabbing;
+        }
+        .node-rect {
+            fill: #ceceed;
+            stroke: #a6a6a6;
+            stroke-width: 1;
+            /* rx/ry are constants */
+        }
+        .node-rect.selected {
+            stroke: #ff7f0e;
+            stroke-width: 2;
+        }
+        .node-label {
+            /* font-size defined dynamically in JS */
+            font-weight: 500;
+            text-anchor: middle; /* Center tspans horizontally */
+            /* dominant-baseline handled dynamically in JS */
+            fill: #333;
+            pointer-events: none; /* Allow clicks to pass through to group/rect */
+        }
+
+        /* Link Path Styling */
+        .link {
+            stroke: #999;
+            stroke-width: 2;
+            fill: none;
+            cursor: pointer;
+            marker-end: url(#arrowhead);
+        }
+        .link:hover {
+            stroke: #ff6666;
+        }
+        #arrowhead path {
+            fill: #999;
+        }
+
+        #file-input { display: none; }
+
+        /* *** ADDED/MODIFIED Button Styles *** */
+        #controls button {
+            background-color: #AEC6CF; /* Pastel Blue */
+            color: #334155; /* Dark Slate Gray for text */
+            border: none; /* Remove default border */
+            padding: 8px 15px; /* Adjust padding */
+            border-radius: 6px; /* Rounded corners */
+            font-weight: 600; /* Slightly bolder */
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease; /* Smooth transitions */
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Subtle button shadow */
+        }
+
+        #controls button:hover {
+            background-color: #9EBDCB; /* Slightly darker blue on hover */
+        }
+
+        #controls button:active {
+            background-color: #91B3C3; /* Even darker blue when pressed */
+            transform: translateY(1px); /* Press effect */
+            box-shadow: none; /* Remove shadow when pressed */
+        }
+
+        /* *** MODIFIED Help Text Styles *** */
+        .help-text {
+             margin-left: auto; /* Push help text to the right */
+             margin-right: 10px; /* Add some margin on the right */
+             font-size: 0.85em; /* Slightly smaller */
+             color: #556B84; /* Darker pastel blue/gray */
+        }
+        .help-text b {
+            margin-right: 5px;
+        }
+        .help-text span {
+            background-color: #D6E4F0; /* Lighter pastel blue background */
+            color: #334155; /* Match button text color */
+            padding: 2px 5px;
+            border-radius: 4px;
+            margin-right: 8px;
+            white-space: nowrap; /* Prevent wrapping within help spans */
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <button id="add-node-btn">Add Node</button>
+        <button id="remove-node-btn">Remove Selected Node</button>
+        <button id="save-btn">Save Map</button>
+        <button id="load-btn">Load Map</button>
+        <input type="file" id="file-input" accept=".json">
+        <div class="help-text">
+            <b>Help:</b>
+            <span>Double click node = Edit label</span>
+            <span>Click link = Remove link</span>
+        </div>
+    </div>
+
+    <div id="mindmap-container">
+        <svg id="mindmap-svg">
+            <defs>
+                <marker id="arrowhead" viewBox="0 0 10 10"
+                        refX="10"  /* Align tip (10,5) with path end */
+                        refY="5"
+                        markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10"
+                        orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"></path>
+                </marker>
+            </defs>
+            <g id="links-group"></g>
+            <g id="nodes-group"></g>
+        </svg>
+    </div>
+
+    <script>
+     const svg = document.getElementById('mindmap-svg');
+     const nodesGroup = document.getElementById('nodes-group');
+     const linksGroup = document.getElementById('links-group');
+     const addNodeBtn = document.getElementById('add-node-btn');
+     const removeNodeBtn = document.getElementById('remove-node-btn');
+     const saveBtn = document.getElementById('save-btn');
+     const loadBtn = document.getElementById('load-btn');
+     const fileInput = document.getElementById('file-input');
+     const mindmapContainer = document.getElementById('mindmap-container');
+
+     // --- Constants ---
+     const NODE_WIDTH = 100;
+     const MIN_NODE_HEIGHT = 30;
+     const NODE_RX = 5;
+     const FONT_SIZE = 13; // px
+     const LINE_HEIGHT_FACTOR = 1.2;
+     const NODE_PADDING_Y = 5;
+     const NODE_PADDING_X = 5;
+     const MAX_TEXT_WIDTH = NODE_WIDTH - NODE_PADDING_X * 2;
+     const ACTUAL_LINE_HEIGHT = FONT_SIZE * LINE_HEIGHT_FACTOR;
+
+     // --- State Variables ---
+     let nodes = [];
+     let links = [];
+     let nodeIdCounter = 0;
+     let selectedNodeForLinking = null;
+     let draggedNodeData = null;
+     let offset = { x: 0, y: 0 };
+
+     // --- Geometry Helpers ---
+     function getRightMiddlePoint(node) { return { x: node.x + node.width / 2, y: node.y }; }
+     function getLeftMiddlePoint(node) { return { x: node.x - node.width / 2, y: node.y }; }
+     function getTopMiddlePoint(node) { return { x: node.x, y: node.y - node.height / 2 }; }
+     function getBottomMiddlePoint(node) { return { x: node.x, y: node.y + node.height / 2 }; }
+
+     // --- Path Calculation ---
+     function createLinkPathData(startPoint, endPoint, isVertical) {
+         if (isVertical) {
+             // Create a straight line path if nodes overlap horizontally
+             return `M ${startPoint.x} ${startPoint.y} L ${endPoint.x} ${endPoint.y}`;
+         } else {
+             // Create a curved path if nodes are horizontally separate
+             const dx = endPoint.x - startPoint.x; const dy = endPoint.y - startPoint.y;
+             const horizontalOffsetMagnitude = Math.max(75, Math.abs(dx) * 0.4);
+             const startOffsetSignX = dx >= 0 ? 1 : -1; const endOffsetSignX = dx >= 0 ? -1 : 1;
+             const controlPoint1X = startPoint.x + startOffsetSignX * horizontalOffsetMagnitude;
+             const controlPoint2X = endPoint.x + endOffsetSignX * horizontalOffsetMagnitude;
+             const verticalOffsetMagnitude = 25;
+             const startOffsetSignY = dy >= 0 ? 1 : -1; const endOffsetSignY = dy >= 0 ? -1 : 1;
+             const controlPoint1Y = startPoint.y + startOffsetSignY * verticalOffsetMagnitude;
+             const controlPoint2Y = endPoint.y + endOffsetSignY * verticalOffsetMagnitude;
+             const controlPoint1 = { x: controlPoint1X, y: controlPoint1Y }; const controlPoint2 = { x: controlPoint2X, y: controlPoint2Y };
+             return `M ${startPoint.x} ${startPoint.y} C ${controlPoint1.x} ${controlPoint1.y}, ${controlPoint2.x} ${controlPoint2.y}, ${endPoint.x} ${endPoint.y}`;
+         }
+     }
+
+     // --- Node and Link Data Management ---
+     function createNode(x, y, label, id = null) { /* Unchanged */
+         const newNodeId = id || `node-${nodeIdCounter++}`;
+         if (id && newNodeId.startsWith('node-')) { const currentIdNum = parseInt(newNodeId.split('-')[1], 10); if (!isNaN(currentIdNum) && currentIdNum >= nodeIdCounter) { nodeIdCounter = currentIdNum + 1; } }
+         const newNode = { id: newNodeId, x: x, y: y, label: label || `Node ${newNodeId.split('-')[1]}`, width: NODE_WIDTH, height: MIN_NODE_HEIGHT, element: null, rectElement: null, textElement: null, };
+         nodes.push(newNode); renderNode(newNode); return newNode;
+     }
+     function createLink(startNode, endNode) { /* Unchanged */ if (!startNode || !endNode || startNode.id === endNode.id || links.some(l => (l.start === startNode.id && l.end === endNode.id) || (l.start === endNode.id && l.end === startNode.id))) { console.log("Link rejected."); return null; } const newLinkId = `link-${startNode.id}-${endNode.id}`; const newLink = { id: newLinkId, start: startNode.id, end: endNode.id, element: null }; links.push(newLink); renderLink(newLink); return newLink; }
+     function removeLink(linkToRemove) { /* Unchanged */ if (!linkToRemove) return; if (linkToRemove.element && linkToRemove.element.parentNode) { linkToRemove.element.parentNode.removeChild(linkToRemove.element); } linkToRemove.element = null; links = links.filter(link => link.id !== linkToRemove.id); }
+     function removeNode(nodeToRemove) { /* Unchanged */ if (!nodeToRemove) { console.warn("Attempted to remove a null node."); return; } const nodeIdToRemove = nodeToRemove.id; console.log(`Attempting to remove node ${nodeIdToRemove}`); const linksToRemove = links.filter(link => link.start === nodeIdToRemove || link.end === nodeIdToRemove); linksToRemove.forEach(link => { removeLink(link); }); if (nodeToRemove.element && nodeToRemove.element.parentNode) { nodeToRemove.element.parentNode.removeChild(nodeToRemove.element); nodeToRemove.element = null; } nodes = nodes.filter(node => node.id !== nodeIdToRemove); if (selectedNodeForLinking && selectedNodeForLinking.id === nodeIdToRemove) { selectedNodeForLinking = null; } console.log(`Node ${nodeIdToRemove} and associated links removed.`); }
+     function getNodeById(id) { /* Unchanged */ return nodes.find(n => n.id === id); }
+     function getLinkById(id) { /* Unchanged */ return links.find(l => l.id === id); }
+
+     // --- Rendering & Appearance Update ---
+     function renderNode(node) { /* Unchanged */
+         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g'); group.setAttribute('id', node.id); group.setAttribute('class', 'node-group'); group.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); rect.setAttribute('class', 'node-rect'); rect.setAttribute('x', -node.width / 2); rect.setAttribute('width', node.width); rect.setAttribute('rx', NODE_RX); rect.setAttribute('ry', NODE_RX);
+         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); text.setAttribute('class', 'node-label'); text.setAttribute('style', `font-size: ${FONT_SIZE}px;`); text.setAttribute('x', 0);
+         group.appendChild(rect); group.appendChild(text);
+         group.addEventListener('mousedown', onNodeMouseDown); group.addEventListener('click', onNodeClick); group.addEventListener('dblclick', onNodeDblClick);
+         nodesGroup.appendChild(group);
+         node.element = group; node.rectElement = rect; node.textElement = text;
+         updateNodeAppearance(node);
+     }
+     function updateNodeAppearance(node) { /* Unchanged */
+         if (!node || !node.textElement || !node.rectElement) { console.warn("updateNodeAppearance: Invalid node object provided.", node?.id); return; }
+         const textElement = node.textElement; const label = node.label || ""; const words = label.split(/\s+/);
+         const lines = []; let currentLine = ''; const tempTspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan'); textElement.appendChild(tempTspan);
+         try { for (const word of words) { const testLine = currentLine ? `${currentLine} ${word}` : word; tempTspan.textContent = testLine; const testWidth = tempTspan.getComputedTextLength(); if (testWidth > MAX_TEXT_WIDTH && currentLine !== '') { lines.push(currentLine); currentLine = word; } else { currentLine = testLine; } } lines.push(currentLine); } finally { if (tempTspan.parentNode === textElement) { textElement.removeChild(tempTspan); } }
+         const lineCount = lines.length > 0 ? lines.length : 1; const neededTextHeight = lineCount * ACTUAL_LINE_HEIGHT; const newHeight = Math.max(MIN_NODE_HEIGHT, NODE_PADDING_Y * 2 + neededTextHeight);
+         let heightChanged = false; if (Math.abs(newHeight - node.height) > 0.1) { node.height = newHeight; heightChanged = true; } else { node.height = newHeight; }
+         node.rectElement.setAttribute('height', node.height); node.rectElement.setAttribute('y', -node.height / 2);
+         node.textElement.setAttribute('y', 0); node.textElement.setAttribute('dominant-baseline', 'middle');
+         const firstDy = -(lineCount - 1) * ACTUAL_LINE_HEIGHT / 2;
+         textElement.innerHTML = ''; lines.forEach((line, index) => { const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan'); tspan.setAttribute('x', 0); tspan.setAttribute('dy', index === 0 ? firstDy : ACTUAL_LINE_HEIGHT); tspan.textContent = line.trim() === '' ? ' ' : line; textElement.appendChild(tspan); });
+         if (heightChanged) { updateConnectedLinks(node); }
+     }
+     function renderLink(link) { /* Unchanged */
+         const startNode=getNodeById(link.start), endNode=getNodeById(link.end);
+         if(!startNode || !endNode) return;
+         const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+         path.setAttribute('id',link.id);
+         path.setAttribute('class','link');
+         path.setAttribute('marker-end','url(#arrowhead)');
+         path.addEventListener('click',onLinkClick);
+         linksGroup.appendChild(path);
+         link.element=path;
+         updateLinkPath(link);
+     }
+
+     // *** MODIFIED updateLinkPath *** (Using horizontal overlap check)
+     function updateLinkPath(link) {
+         const startNode = getNodeById(link.start);
+         const endNode = getNodeById(link.end);
+
+         if (!startNode || !endNode) {
+             console.warn(`Nodes for link ${link.id} not found. Removing link.`);
+             removeLink(link); return;
+         }
+         if (!link.element) {
+             console.error(`Link element for ${link.id} missing, cannot update path.`); return;
+         }
+
+         let startPoint;
+         let endPoint;
+         let isVertical = false; // Flag for createLinkPathData (true = straight line)
+
+         const dx = endNode.x - startNode.x;
+         const dy = endNode.y - startNode.y;
+
+         // Check if nodes overlap horizontally (their widths intersect on the x-axis)
+         if (Math.abs(dx) <= NODE_WIDTH) {
+             // Use Top/Bottom connectors AND signal for straight line
+             isVertical = true;
+             if (dy > 0) { // Child is below parent
+                 startPoint = getBottomMiddlePoint(startNode);
+                 endPoint = getTopMiddlePoint(endNode);
+             } else { // Child is above parent (or dy is 0, default top->bottom)
+                 startPoint = getTopMiddlePoint(startNode);
+                 endPoint = getBottomMiddlePoint(endNode);
+             }
+         } else {
+             // Nodes are horizontally separate: Use Left/Right connectors AND signal for curved line
+             isVertical = false;
+             if (dx < 0) { // Child is left
+                 startPoint = getLeftMiddlePoint(startNode);
+                 endPoint = getRightMiddlePoint(endNode);
+             } else { // Child is right (dx > 0)
+                 startPoint = getRightMiddlePoint(startNode);
+                 endPoint = getLeftMiddlePoint(endNode);
+             }
+         }
+
+         // Calculate path data using the appropriate method (straight or curved)
+         const pathData = createLinkPathData(startPoint, endPoint, isVertical);
+         link.element.setAttribute('d', pathData);
+     }
+
+
+     function updateNodePosition(node, x, y) { /* Unchanged */ node.x = x; node.y = y; node.element.setAttribute('transform', `translate(${x}, ${y})`); updateConnectedLinks(node); }
+     function updateConnectedLinks(node) { /* Unchanged */ links.forEach(link => { if (link.start === node.id || link.end === node.id) { updateLinkPath(link); } }); }
+     function updateNodeLabel(node, newLabel) { /* Unchanged */ node.label = newLabel; updateNodeAppearance(node); }
+
+     // --- Save/Load Functions --- (Unchanged)
+     function saveMindmap() { console.log("Saving mindmap..."); const saveData={nodes:nodes.map(n=>({id:n.id,x:n.x,y:n.y,label:n.label})),links:links.map(l=>({id:l.id,start:l.start,end:l.end}))}; const jsonString=JSON.stringify(saveData,null,2); const blob=new Blob([jsonString],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; const now=new Date(); const timestamp=`${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}_${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}${now.getSeconds().toString().padStart(2,'0')}`; a.download=`mindmap_${timestamp}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); console.log("Mindmap saved."); }
+     function loadMindmapTrigger() { fileInput.click(); }
+     function handleFileLoad(event) { const file=event.target.files[0]; if (!file){console.log("No file selected."); return;} if(!file.type||file.type!=='application/json'){alert('Please select a valid JSON file (.json).'); event.target.value=null; return;} const reader=new FileReader(); reader.onload=function(e){try{const fileContent=e.target.result; const loadedData=JSON.parse(fileContent); if(!loadedData||!Array.isArray(loadedData.nodes)||!Array.isArray(loadedData.links)){throw new Error("Invalid mind map file structure.");} console.log("Loading data..."); restoreMindmap(loadedData); console.log("Mindmap loaded successfully.");}catch(error){console.error("Error loading or parsing mindmap file:",error); alert(`Error loading mindmap: ${error.message}`);}finally{event.target.value=null;}}; reader.onerror=function(){console.error("Error reading file:",reader.error); alert("Error reading the selected file."); event.target.value=null;}; reader.readAsText(file); }
+     function clearMindmap() { console.log("Clearing current mindmap..."); nodes=[]; links=[]; nodesGroup.innerHTML=''; linksGroup.innerHTML=''; nodeIdCounter=0; selectedNodeForLinking=null; draggedNodeData=null; console.log("Mindmap cleared."); }
+     function restoreMindmap(data) { clearMindmap(); console.log("Restoring nodes..."); let maxId=-1; data.nodes.forEach(nodeData=>{if(!nodeData.id||typeof nodeData.x!=='number'||typeof nodeData.y!=='number'){console.warn("Skipping invalid node data:",nodeData); return;} createNode(nodeData.x,nodeData.y,nodeData.label,nodeData.id); if(nodeData.id.startsWith('node-')){const idNum=parseInt(nodeData.id.split('-')[1],10); if(!isNaN(idNum)&&idNum>maxId){maxId=idNum;}}}); nodeIdCounter=maxId+1; console.log(`Restored ${nodes.length} nodes. Next Node ID: node-${nodeIdCounter}`); console.log("Restoring links..."); data.links.forEach(linkData=>{if(!linkData.start||!linkData.end){console.warn("Skipping invalid link data:",linkData); return;} const startNode=getNodeById(linkData.start); const endNode=getNodeById(linkData.end); if(startNode&&endNode){const createdLink = createLink(startNode,endNode); if(createdLink && linkData.id) createdLink.id = linkData.id;}else{console.warn(`Skipping link ${linkData.id||'(no id)'} because start/end node not found: ${linkData.start} -> ${linkData.end}`);}}); console.log(`Restored ${links.length} links.`); }
+
+     // --- Event Handlers --- (Unchanged)
+     addNodeBtn.addEventListener('click', () => { const rect = svg.getBoundingClientRect(); const approxWidth = rect.width || window.innerWidth; const approxHeight = rect.height || window.innerHeight; const randomX = Math.random()*(approxWidth - NODE_WIDTH*2) + NODE_WIDTH; const randomY = Math.random()*(approxHeight - MIN_NODE_HEIGHT*2 - 50) + MIN_NODE_HEIGHT + 50; createNode(randomX, randomY); });
+     function onNodeClick(event) { event.stopPropagation(); const clickedNodeGroup=event.currentTarget; const clickedNode=getNodeById(clickedNodeGroup.id); if(!clickedNode) return; if(!selectedNodeForLinking){selectedNodeForLinking=clickedNode; clickedNode.rectElement.classList.add('selected');}else{selectedNodeForLinking.rectElement.classList.remove('selected'); if(selectedNodeForLinking.id !== clickedNode.id){createLink(selectedNodeForLinking,clickedNode);} selectedNodeForLinking=null;}}
+     function onNodeDblClick(event) { event.stopPropagation(); const nodeGroup=event.currentTarget; const node=getNodeById(nodeGroup.id); if(!node) return; const newLabel=prompt(`Enter new label for ${node.id}:`,node.label); if(newLabel !== null && newLabel.trim() !== node.label){updateNodeLabel(node, newLabel.trim() || `Node ${node.id.split('-')[1]}`);}}
+     function onNodeMouseDown(event) { event.preventDefault(); event.stopPropagation(); const nodeGroup=event.currentTarget; draggedNodeData=getNodeById(nodeGroup.id); if(!draggedNodeData) return; const CTM=svg.getScreenCTM(); const mousePos={x:(event.clientX-CTM.e)/CTM.a, y:(event.clientY-CTM.f)/CTM.d}; offset={x: mousePos.x - draggedNodeData.x, y: mousePos.y - draggedNodeData.y}; mindmapContainer.addEventListener('mousemove',onDrag); mindmapContainer.addEventListener('mouseup',onDragEnd); mindmapContainer.addEventListener('mouseleave',onDragEnd); }
+     function onDrag(event) { if(!draggedNodeData) return; const CTM=svg.getScreenCTM(); const mousePos={x:(event.clientX-CTM.e)/CTM.a, y:(event.clientY-CTM.f)/CTM.d}; updateNodePosition(draggedNodeData, mousePos.x - offset.x, mousePos.y - offset.y); }
+     function onDragEnd(event) { if(!draggedNodeData) return; mindmapContainer.removeEventListener('mousemove',onDrag); mindmapContainer.removeEventListener('mouseup',onDragEnd); mindmapContainer.removeEventListener('mouseleave',onDragEnd); draggedNodeData=null; }
+     function onLinkClick(event) { event.stopPropagation(); const linkElement=event.currentTarget; const linkData=getLinkById(linkElement.id); if(linkData && confirm(`Delete link between ${linkData.start} and ${linkData.end}?`)) {removeLink(linkData);} }
+     svg.addEventListener('click', (event) => { if(event.target === svg && selectedNodeForLinking) { console.log("Deselecting node on background click."); selectedNodeForLinking.rectElement.classList.remove('selected'); selectedNodeForLinking=null; } });
+
+     // --- Global Event Listener Setup --- (Unchanged)
+     saveBtn.addEventListener('click', saveMindmap);
+     loadBtn.addEventListener('click', loadMindmapTrigger);
+     fileInput.addEventListener('change', handleFileLoad);
+     removeNodeBtn.addEventListener('click', () => {
+         if (selectedNodeForLinking) {
+             if (confirm(`Are you sure you want to delete node "${selectedNodeForLinking.label}" (${selectedNodeForLinking.id}) and its connections?`)) {
+                 removeNode(selectedNodeForLinking);
+             }
+         } else {
+             alert("Please select a node to remove first (click on it).");
+         }
+     });
+
+     // --- Initial Setup ---  (Cleaned)
+     function initialize() {
+         console.log("Mind Map Initialized - Final Overlap Logic");
+         // Create only the single starting node
+         createNode(300, 200, "Start Here");
+     }
+     document.addEventListener('DOMContentLoaded', initialize);
+
+    </script>
+
+</body>
+</html>
